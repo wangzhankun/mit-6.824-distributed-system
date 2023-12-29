@@ -13,6 +13,7 @@ import (
 )
 
 type Coordinator struct {
+	firstRequest int32
 	waitingTasks map[int32]RequestTaskReply
 
 	taskId int32
@@ -33,7 +34,7 @@ type Coordinator struct {
 }
 
 func (c *Coordinator) RequestTask(args *RequestTaskArgs, reply *RequestTaskReply) error {
-
+	atomic.StoreInt32(&c.firstRequest, 1)
 	// if channel is empty, continue without blocking
 	if len(c.requestTaskReplyChannel) == 0 {
 		reply.TaskType = None
@@ -64,7 +65,7 @@ func (c *Coordinator) server() {
 }
 
 func (c *Coordinator) reply2RequestTask() {
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(20 * time.Second)
 	defer ticker.Stop()
 
 	for len(c.waitingTasks) != 0 {
@@ -112,7 +113,9 @@ func (c *Coordinator) reply2RequestTask() {
 }
 
 func (c *Coordinator) coordinate() {
-
+	for atomic.LoadInt32(&c.firstRequest) == 0 {
+		time.Sleep(100 * time.Millisecond)
+	}
 	for f := range c.files {
 		reply := RequestTaskReply{
 			TaskType:       MapTask,
@@ -161,6 +164,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 	log.SetFlags(log.Lshortfile | log.LstdFlags)
 
+	c.firstRequest = 0
 	c.waitingTasks = make(map[int32]RequestTaskReply)
 	c.taskId = 0
 	c.files = files
